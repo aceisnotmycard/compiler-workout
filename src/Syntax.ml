@@ -34,6 +34,27 @@ module Expr =
     *)
     let update x v s = fun y -> if x = y then v else s y
 
+    let toBool arg = arg <> 0
+
+    let toInt arg = if arg then 1 else 0
+
+    let evalBinop str x y = 
+      match str with
+        | "+" ->  x + y
+        | "-" ->  x - y
+        | "*" ->  x * y
+        | "/" ->  x / y
+        | "%" ->  x mod y
+        | "<" ->  toInt (x < y) 
+        | "<=" -> toInt (x <= y)
+        | ">" ->  toInt (x > y)
+        | ">=" -> toInt (x >= y)
+        | "!=" -> toInt (x <> y)
+        | "==" -> toInt (x == y)
+        | "&&" -> toInt ((toBool x) && (toBool y))
+        | "!!" -> toInt ((toBool x) || (toBool y)) 
+        | _ -> failwith "Unknown operator"
+
     (* Expression evaluator
 
           val eval : state -> t -> int
@@ -41,7 +62,11 @@ module Expr =
        Takes a state and an expression, and returns the value of the expression in 
        the given state.
     *)
-    let eval _ = failwith "Not implemented yet"
+    let rec eval state expr = 
+      match expr with
+        | Const n -> n
+        | Var var -> state var
+        | Binop (str, expr1, expr2) -> evalBinop str (eval state expr1) (eval state expr2)
 
   end
                     
@@ -65,7 +90,22 @@ module Stmt =
 
        Takes a configuration and a statement, and returns another configuration
     *)
-    let eval _ = failwith "Not implemented yet"
+    let rec eval (state, input, output) stmt = 
+      match stmt with
+        | Read var -> 
+          let (head::tail) = input in
+          let newState = Expr.update var head state in
+          (newState, tail, output)
+        | Write expr -> 
+          let result = Expr.eval state expr in
+          (state, input, output @ [result])
+        | Assign (var, expr) -> 
+          let result = Expr.eval state expr in
+          let newState = Expr.update var result state in 
+          (newState, input, output)
+        | Seq (stmt1, stmt2) -> 
+          let cfg1 = eval (state, input, output) stmt1 in
+          eval cfg1 stmt2
                                                          
   end
 
