@@ -69,9 +69,6 @@ let run p i = let (_, (_, _, o)) = eval ([], (Language.Expr.empty, i, [])) p in 
    Takes a program in the source language and returns an equivalent program for the
    stack machine
  *)
-<<<<<<< HEAD
-let compile _ = failwith "Not yet implemented"
-=======
  let rec compile_expr (expr: Expr.t): prg = 
   match expr with
     | Expr.Const n           -> [CONST n]
@@ -84,6 +81,3 @@ let rec compile (stmt: Stmt.t): prg =
     | Stmt.Write expr          -> compile_expr expr @ [WRITE] 
     | Stmt.Assign (var, expr)  -> compile_expr expr @ [ST var]
     | Stmt.Seq (stmt1, stmt2)  -> compile stmt1 @ compile stmt2 
-
-                         
->>>>>>> hw3
