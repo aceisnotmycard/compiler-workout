@@ -44,16 +44,59 @@ module Expr =
        Takes a state and an expression, and returns the value of the expression in 
        the given state.
     *)
-    let eval _ = failwith "Not implemented yet"
+    let to_bool arg = arg <> 0
 
+    let to_int arg = if arg then 1 else 0
+
+    let eval_binop str x y = 
+      match str with
+        | "+" ->  x + y
+        | "-" ->  x - y
+        | "*" ->  x * y
+        | "/" ->  x / y
+        | "%" ->  x mod y
+        | "<" ->  to_int (x < y) 
+        | "<=" -> to_int (x <= y)
+        | ">" ->  to_int (x > y)
+        | ">=" -> to_int (x >= y)
+        | "!=" -> to_int (x <> y)
+        | "==" -> to_int (x == y)
+        | "&&" -> to_int ((to_bool x) && (to_bool y))
+        | "!!" -> to_int ((to_bool x) || (to_bool y)) 
+        | _ -> failwith "Unknown operator"
+
+    let rec eval state expr = 
+      match expr with
+        | Const n -> n
+        | Var var -> state var
+        | Binop (str, expr1, expr2) -> eval_binop str (eval state expr1) (eval state expr2)    
     (* Expression parser. You can use the following terminals:
 
          IDENT   --- a non-empty identifier a-zA-Z[a-zA-Z0-9_]* as a string
          DECIMAL --- a decimal constant [0-9]+ as a string
    
     *)
+
+    let binop_mapper (operators: string list) = 
+      List.map (fun op -> ostap ($(op)), fun lhs rhs -> Binop (op, lhs, rhs)) operators
+
     ostap (
-      parse: empty {failwith "Not implemented yet"}
+      parse: 
+        !(Ostap.Util.expr
+          (fun x -> x)
+          [|
+            `Lefta, binop_mapper ["!!"];
+            `Lefta, binop_mapper ["&&"];
+            `Nona,  binop_mapper ["=="; "!="; "<="; "<"; ">="; ">"];
+            `Lefta, binop_mapper ["+"; "-"];
+            `Lefta, binop_mapper ["*"; "/"; "%"]
+          |]
+          primary
+        );
+      primary: 
+            name: IDENT { Var name } 
+          | value: DECIMAL { Const value } 
+          | -"(" parse -")"
     )
 
   end
@@ -78,11 +121,31 @@ module Stmt =
 
        Takes a configuration and a statement, and returns another configuration
     *)
-    let eval _ = failwith "Not implemented yet"
+    let rec eval (state, input, output) stmt = 
+      match stmt with
+        | Read var -> 
+          let (head::tail) = input in
+          let new_state = Expr.update var head state in
+          (new_state, tail, output)
+        | Write expr -> 
+          let result = Expr.eval state expr in
+          (state, input, output @ [result])
+        | Assign (var, expr) -> 
+          let result = Expr.eval state expr in
+          let new_state = Expr.update var result state in 
+          (new_state, input, output)
+        | Seq (stmt1, stmt2) -> 
+          let cfg1 = eval (state, input, output) stmt1 in
+          eval cfg1 stmt2
 
     (* Statement parser *)
     ostap (
-      parse: empty {failwith "Not implemented yet"}
+      parse: seq | stmt;
+      stmt: assign | read | write;
+      read: -"read" -"(" var_name: IDENT -")" { Read var_name };
+      write: -"write" -"(" expr: !(Expr.parse) -")" { Write expr };
+      assign: var_name: IDENT -":=" expr: !(Expr.parse) { Assign(var_name, expr) };
+      seq: head: stmt -";" tail: parse { Seq(head, tail) }
     )
       
   end
