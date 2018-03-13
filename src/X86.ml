@@ -93,7 +93,6 @@ let selectBinop env (op: string) =
       Binop ("cmp", L 0, rhs);
       Set ("nz", "%dl");
       Binop (op, eax, edx);
-      Binop ("&&", L 1, edx);
     ]
   | "<" | "<=" | ">" | ">=" | "==" | "!=" ->
     let cc = match op with
