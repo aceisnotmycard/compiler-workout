@@ -79,6 +79,51 @@ let show instr =
 (* Opening stack machine to use instructions without fully qualified names *)
 open SM
 
+let selectBinop env (op: string) = 
+  let lhs, rhs, env = env#pop2 in
+  let resultSlot, env = env#allocate in
+  let resultOperand, insns = match op with
+  | "/" | "%" ->
+    let resultReg = (if op = "/" then eax else edx) in
+    resultReg, [ 
+      Mov (rhs, eax);
+      Cltd; 
+      IDiv lhs;
+    ]
+  | "!!" | "&&" ->
+    edx, [
+      Binop ("^", eax, eax);
+      Binop ("^", edx, edx);
+      Binop ("cmp", L 0, lhs);
+      Set ("nz", "%al");
+      Binop ("cmp", L 0, rhs);
+      Set ("nz", "%dl");
+      Binop (op, eax, edx);
+    ]
+  | "<" | "<=" | ">" | ">=" | "==" | "!=" ->
+    let cc = match op with
+    | "<"  -> "l"
+    | "<=" -> "le"
+    | ">"  -> "g"
+    | ">=" -> "ge"
+    | "==" -> "e"
+    | "!=" -> "ne"
+    in
+    edx, [
+      Mov (rhs, eax);
+      Binop ("^", edx, edx); 
+      Binop ("cmp", lhs, eax); 
+      Set (cc, "%dl");
+    ]
+  | _ -> 
+    eax, [ 
+      Mov (rhs, eax);
+      Binop (op, lhs, eax); 
+    ]
+  in
+  env, insns @ [Mov (resultOperand, resultSlot)]
+
+
 (* Symbolic stack machine evaluator
 
      compile : env -> prg -> env * instr list
@@ -86,7 +131,59 @@ open SM
    Take an environment, a stack machine program, and returns a pair --- the updated environment and the list
    of x86 instructions
 *)
-let compile env code = failwith "Not yet implemented"
+let rec compile env code = match code with
+  | [] -> env, []
+  | insn::code' -> 
+    let env, asm = match insn with
+      | CONST n -> 
+        let slot, env = env#allocate in
+        env, [
+          Mov (L n, slot);
+        ]
+      | WRITE ->
+        let s, env = env#pop in
+        env, [
+          Push s;
+          Call "Lwrite";
+          Pop eax;
+        ] 
+      | LD x -> 
+        let s, env = (env#global x)#allocate in
+        env, [
+          Mov (M ("global_" ^ x), eax);
+          Mov (eax, s);
+        ]
+      | ST x -> 
+        let s, env = (env#global x)#pop in
+        env, [
+          Mov (s, M ("global_" ^ x))
+        ]
+      | READ ->
+        let s, env = env#allocate in
+        env, [
+          Call "Lread";
+          Mov (eax, s)
+        ]  
+      | BINOP op -> selectBinop env op  
+      | LABEL label -> 
+        env, [
+          Label label
+        ]
+      | JMP label ->
+        env, [
+          Jmp label
+        ]
+      | CJMP (cond, label) ->
+        let value, env = env#pop in
+        env, [
+          Binop ("cmp", L 0, value);
+          CJmp (cond, label)
+        ]
+      | _ -> failwith "Not implemented yet"
+    in
+    let env, asm' = compile env code' in
+    env, asm @ asm' 
+
 
 (* A set of strings *)           
 module S = Set.Make (String)
@@ -104,14 +201,14 @@ class env =
     (* allocates a fresh position on a symbolic stack *)
     method allocate =    
       let x, n =
-	let rec allocate' = function
-	| []                            -> ebx     , 0
-	| (S n)::_                      -> S (n+1) , n+1
-	| (R n)::_ when n < num_of_regs -> R (n+1) , stack_slots
-        | (M _)::s                      -> allocate' s
-	| _                             -> S 0     , 1
-	in
-	allocate' stack
+        let rec allocate' = function
+        | []                            -> ebx     , 0
+        | (S n)::_                      -> S (n+1) , n+1
+        | (R n)::_ when n < num_of_regs -> R (n+1) , stack_slots
+              | (M _)::s                      -> allocate' s
+        | _                             -> S 0     , 1
+        in
+        allocate' stack
       in
       x, {< stack_slots = max n stack_slots; stack = x::stack >}
 
@@ -119,10 +216,10 @@ class env =
     method push y = {< stack = y::stack >}
 
     (* pops one operand from the symbolic stack *)
-    method pop  = let x::stack' = stack in x, {< stack = stack' >}
+    method pop  = let (x::stack') = stack in x, {< stack = stack' >}
 
     (* pops two operands from the symbolic stack *)
-    method pop2 = let x::y::stack' = stack in x, y, {< stack = stack' >}
+    method pop2 = let (x::y::stack') = stack in x, y, {< stack = stack' >}
 
     (* registers a global variable in the environment *)
     method global x  = {< globals = S.add ("global_" ^ x) globals >}
@@ -140,9 +237,18 @@ class env =
 let compile_unit env scode =  
   let env, code = compile env scode in
   env, 
-  ([Push ebp; Mov (esp, ebp); Binop ("-", L (word_size*env#allocated), esp)] @ 
+  ([
+    Push ebp; 
+    Mov (esp, ebp); 
+    Binop ("-", L (word_size*env#allocated), esp)
+    ] @ 
    code @
-   [Mov (ebp, esp); Pop ebp; Binop ("^", eax, eax); Ret]
+   [
+    Mov (ebp, esp); 
+    Pop ebp; 
+    Binop ("^", eax, eax); 
+    Ret
+    ]
   )
 
 (* Generates an assembler text for a program: first compiles the program into
