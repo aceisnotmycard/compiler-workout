@@ -263,8 +263,12 @@ module S = Set.Make (String)
 (* A map indexed by strings *)
 module M = Map.Make (String)
 
+let rec init' iter n f = if iter < n 
+then (f iter) :: (init' (iter + 1) n f) 
+else []
+
 (* Environment implementation *)
-let make_assoc l = List.combine l (List.init (List.length l) (fun x -> x))
+let make_assoc l = List.combine l (init' 0 (List.length l) (fun x -> x))
                      
 class env =
   object (self)
