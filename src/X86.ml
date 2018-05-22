@@ -90,17 +90,19 @@ open SM
    Take an environment, a stack machine program, and returns a pair --- the updated environment and the list
    of x86 instructions
 *)
-let charToCode = function
-  | '_' -> 53
-  | c -> if (c <= 'Z') then Char.code c - 64 else Char.code c - 70
 
 let compTagHash tag = 
+  let charToCode = function
+  | '_' -> 53
+  | c -> (if (c <= 'Z') 
+    then Char.code c - 64 
+    else Char.code c - 70) in
   let length = String.length tag in
   let subTag = String.sub tag 0 (min length 5) in
-  let rec hashStr str acc all k = 
-    if (k >= all) then acc
-    else hashStr tag ((acc lsl 6) lor (charToCode tag.[k])) all (k + 1) in
-  hashStr subTag 0 length 0
+  let rec hashStr str acc maxPos i = 
+    if (i >= maxPos) then acc
+    else hashStr tag ((acc lsl 6) lor (charToCode tag.[i])) maxPos (i + 1) in
+  hashStr tag 0 length 0
 
 let compile env code =
   let suffix = function
